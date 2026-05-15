@@ -1,0 +1,78 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets/config/state/logs
+.env
+.env.*
+*.local.json
+secrets.local.json
+config.local.json
+*.log
+*.db
+*.sqlite
+*.sqlite3
+logs/
+work/
+temp/
+thumbnails/
+
+# Build outputs and packaging artifacts
+build/
+dist/
+dist_release/
+dist_prev/
+dist_release_prev/
+dist_build_tmp/
+dist_release_build_tmp/
+test_builds/
+releases/*.zip
+*.zip
+*.manifest
+*.toc
+*.pkg
+*.spec.bak
+*.spec.tmp
+
+# Keep the real PyInstaller spec tracked
+!ClipDis.spec
+
+# Generated media/cache
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.jpg.tmp
+*.png.tmp
+
+# Root/local binaries should not be committed
+*.exe
+!app/ffmpeg/bin/ffmpeg.exe
+!app/ffmpeg/bin/ffprobe.exe
+!app/ffmpeg/bin/LICENSE
+!app/ffmpeg/bin/LICENSE*
+!app/ffmpeg/bin/NOTICE*
+!app/ffmpeg/bin/COPYING*
+
+# IDE / OS junk
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Local scratch
+_tmp*/
+tmp_ui_snapshots/
+
+# Legacy/local launcher scratch
+hermann.py
