@@ -18,7 +18,7 @@ from app.config import (
     save_config,
     validate_watch_folders,
 )
-from app.state import StateStore
+from app.state import ACTIVE_STATES, StateStore
 
 
 class WatchFolderService:
@@ -104,9 +104,19 @@ class WatchFolderService:
         profile = get_watch_folder_profile(config, profile_id)
         if profile is None:
             return _error("Watch folder profile was not found.")
-        if self.state.profile_has_active_jobs(profile.id):
+
+        # Failed jobs are also unresolved because the user may retry them later.
+        # Removing their owning profile would make that retry/archive behavior
+        # ambiguous, so require active and failed work to be resolved first.
+        blocking_states = set(ACTIVE_STATES) | {"failed"}
+        unresolved = [
+            job
+            for job in self.state.list_jobs_for_profile(profile.id, active_only=False, limit=1000)
+            if str(job.get("status") or "") in blocking_states
+        ]
+        if unresolved:
             return _error(
-                f'Cannot remove "{profile.name}" while it still has active clip jobs. Resolve or finish those jobs first.'
+                f'Cannot remove "{profile.name}" while it still has active or failed clip jobs. Resolve, finish, or skip those jobs first.'
             )
         config.watch_folders = [item for item in config.watch_folders if item.id != profile.id]
         self._save(config)
