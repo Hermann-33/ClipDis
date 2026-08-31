@@ -1,0 +1,36 @@
+name: v1.1 backend tests
+
+on:
+  push:
+    branches:
+      - feature/v1.1.0-multi-watch-folders
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Compile Python sources
+        run: python -m compileall -q main.py app tests
+
+      - name: Run v1.1 regression suite
+        run: python -m unittest discover -s tests -v

@@ -46,6 +46,22 @@ class InvalidTransitionError(ValueError):
     pass
 
 
+class _ClosingConnection(sqlite3.Connection):
+    """SQLite connection whose context-manager exit also closes the handle.
+
+    sqlite3.Connection.__exit__ commits or rolls back but intentionally leaves
+    the connection open. StateStore opens short-lived connections throughout
+    the app, so closing on context exit prevents leaked Windows file handles and
+    makes temporary/test databases removable immediately.
+    """
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 @dataclass(frozen=True)
 class JobIdentity:
     fingerprint: str
@@ -72,6 +88,8 @@ class StateStore:
                     original_filename TEXT NOT NULL,
                     original_size INTEGER,
                     original_mtime REAL,
+                    watch_folder_id TEXT,
+                    watch_folder_path TEXT,
                     status TEXT NOT NULL,
                     previous_status TEXT,
                     compressed_path TEXT,
@@ -109,24 +127,48 @@ class StateStore:
                 CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
                 """
             )
+            _ensure_column(conn, "jobs", "watch_folder_id", "TEXT")
+            _ensure_column(conn, "jobs", "watch_folder_path", "TEXT")
             _ensure_column(conn, "jobs", "archive_path", "TEXT")
             _ensure_column(conn, "jobs", "cleanup_status", "TEXT")
             _ensure_column(conn, "jobs", "cleanup_error", "TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_watch_folder_id ON jobs(watch_folder_id)")
 
-    def create_or_get_job(self, source_path: str | Path) -> dict[str, Any]:
+    def create_or_get_job(
+        self,
+        source_path: str | Path,
+        watch_folder_id: str | None = None,
+        watch_folder_path: str | Path | None = None,
+    ) -> dict[str, Any]:
         self.initialize_database()
         identity = build_job_identity(source_path)
+        profile_id = str(watch_folder_id or "").strip() or None
+        profile_path = _normalize_optional_path(watch_folder_path)
         now = utc_now()
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM jobs WHERE fingerprint = ?", (identity.fingerprint,)).fetchone()
             if row:
+                if profile_id and not row["watch_folder_id"]:
+                    conn.execute(
+                        "UPDATE jobs SET watch_folder_id = ?, watch_folder_path = COALESCE(watch_folder_path, ?), updated_at = ? WHERE id = ?",
+                        (profile_id, profile_path, now, row["id"]),
+                    )
+                    self.add_event(
+                        int(row["id"]),
+                        "watch_folder_backfilled",
+                        "Watch-folder ownership backfilled.",
+                        {"watch_folder_id": profile_id},
+                        conn=conn,
+                    )
+                    row = conn.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
                 return row_to_dict(row)
             cursor = conn.execute(
                 """
                 INSERT INTO jobs (
                     fingerprint, source_path, original_filename, original_size, original_mtime,
+                    watch_folder_id, watch_folder_path,
                     status, created_at, updated_at, detected_at
-                ) VALUES (?, ?, ?, ?, ?, 'detected', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'detected', ?, ?, ?)
                 """,
                 (
                     identity.fingerprint,
@@ -134,13 +176,21 @@ class StateStore:
                     identity.original_filename,
                     identity.original_size,
                     identity.original_mtime,
+                    profile_id,
+                    profile_path,
                     now,
                     now,
                     now,
                 ),
             )
             job_id = int(cursor.lastrowid)
-            self.add_event(job_id, "job_created", "Job detected.", {"source_path": identity.source_path}, conn=conn)
+            self.add_event(
+                job_id,
+                "job_created",
+                "Job detected.",
+                {"source_path": identity.source_path, "watch_folder_id": profile_id},
+                conn=conn,
+            )
             return row_to_dict(conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone())
 
     def get_job(self, job_id: int) -> dict[str, Any] | None:
@@ -182,6 +232,36 @@ class StateStore:
                     (limit, offset),
                 ).fetchall()
             return [row_to_dict(row) for row in rows]
+
+    def list_jobs_for_profile(
+        self,
+        watch_folder_id: str,
+        *,
+        active_only: bool = False,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        self.initialize_database()
+        profile_id = str(watch_folder_id or "").strip()
+        if not profile_id:
+            return []
+        limit = max(1, min(int(limit), 1000))
+        with self._connect() as conn:
+            if active_only:
+                placeholders = ",".join("?" for _ in ACTIVE_STATES)
+                params = (profile_id, *sorted(ACTIVE_STATES), limit)
+                rows = conn.execute(
+                    f"SELECT * FROM jobs WHERE watch_folder_id = ? AND status IN ({placeholders}) ORDER BY created_at DESC LIMIT ?",
+                    params,
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM jobs WHERE watch_folder_id = ? ORDER BY created_at DESC LIMIT ?",
+                    (profile_id, limit),
+                ).fetchall()
+            return [row_to_dict(row) for row in rows]
+
+    def profile_has_active_jobs(self, watch_folder_id: str) -> bool:
+        return bool(self.list_jobs_for_profile(watch_folder_id, active_only=True, limit=1))
 
     def list_recent_jobs(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.list_jobs(limit=limit)
@@ -478,7 +558,7 @@ class StateStore:
             return row_to_dict(row) if row else None
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, factory=_ClosingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
@@ -530,3 +610,12 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _normalize_optional_path(path: str | Path | None) -> str | None:
+    if path is None:
+        return None
+    value = str(path).strip()
+    if not value:
+        return None
+    return str(Path(value).expanduser().resolve(strict=False))

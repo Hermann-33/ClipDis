@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from app.archive import archive_uploaded_job, cleanup_compressed_file
-from app.config import AppConfig, load_config
+from app.config import AppConfig, WatchFolderProfile, load_config, profile_uploaded_folder
 from app.discord_uploader import upload_processed_job
 from app.ffmpeg_runner import compress_clip
 from app.file_ready import should_ignore_path, wait_until_file_ready
@@ -22,7 +23,12 @@ logger = logging.getLogger(__name__)
 class WorkerStatus:
     state: str = "stopped"
     watcher_enabled: bool = False
+    # Legacy summary field retained for older GUI bindings. It contains the
+    # first configured watch root; new UI should use profile_statuses.
     watch_folder: str = ""
+    watch_folder_count: int = 0
+    missing_watch_folder_count: int = 0
+    profile_statuses: list[dict[str, Any]] = field(default_factory=list)
     last_scan_time: str = ""
     last_error: str = ""
     scanned_files: int = 0
@@ -353,38 +359,48 @@ class ClipWorker:
         return {"ok": True, "message": f"Auto mode {'enabled' if enabled else 'disabled'}."}
 
     def reload_runtime_config(self) -> dict[str, Any]:
-        """Refresh status fields that depend on config without restarting jobs."""
+        """Refresh profile-dependent status without restarting active jobs."""
         try:
             config = load_config()
-            watch_folder = Path(config.watch_folder) if config.watch_folder else None
+            profile_statuses = _profile_statuses(config)
+            valid_count = sum(1 for item in profile_statuses if item["exists"])
+            missing_count = len(profile_statuses) - valid_count
+            first_path = config.watch_folders[0].path if config.watch_folders else ""
             updates: dict[str, Any] = {
                 "auto_pipeline_enabled": self._auto_mode_enabled(config),
-                "watch_folder": str(watch_folder) if watch_folder else "",
+                "watch_folder": first_path,
+                "watch_folder_count": len(config.watch_folders),
+                "missing_watch_folder_count": missing_count,
+                "profile_statuses": profile_statuses,
+                "message": "Runtime configuration refreshed.",
             }
             status = self.get_status()
-            if not watch_folder:
+            if not config.watch_folders:
                 updates.update(
                     state="config_required",
                     watcher_enabled=False,
-                    last_error="Watch folder is not configured.",
-                    message="Configuration refresh complete.",
+                    last_error="No watch folders are configured.",
                 )
-            elif not watch_folder.is_dir():
+            elif valid_count == 0:
                 updates.update(
-                    state="watch_folder_missing",
+                    state="watch_folders_missing",
                     watcher_enabled=False,
-                    last_error=f"Watch folder is missing: {watch_folder}",
-                    message="Configuration refresh complete.",
+                    last_error="All configured watch folders are missing.",
                 )
             else:
-                updates["last_error"] = ""
+                updates["last_error"] = "" if missing_count == 0 else f"{missing_count} watch folder(s) are missing."
                 updates["watcher_enabled"] = not self._pause_event.is_set()
-                if status.get("state") in {"config_required", "watch_folder_missing", "error", "stopped"}:
+                if status.get("state") in {"config_required", "watch_folder_missing", "watch_folders_missing", "error", "stopped"}:
                     updates["state"] = "paused" if self._pause_event.is_set() else "running"
-                updates["message"] = "Runtime configuration refreshed."
             self._set_status(**updates)
-            logger.info("Worker runtime configuration refreshed.")
-            return {"ok": True, "message": "Runtime configuration refreshed.", "watchFolder": str(watch_folder) if watch_folder else ""}
+            logger.info("Worker runtime configuration refreshed for %s profile(s).", len(config.watch_folders))
+            return {
+                "ok": bool(config.watch_folders),
+                "message": "Runtime configuration refreshed.",
+                "watchFolderCount": len(config.watch_folders),
+                "missingWatchFolderCount": missing_count,
+                "profiles": profile_statuses,
+            }
         except Exception as exc:
             logger.exception("Worker runtime configuration refresh failed.")
             self._set_status(state="error", last_error=redact(str(exc)))
@@ -462,73 +478,115 @@ class ClipWorker:
             self._stop_event.wait(float(config.watcher_poll_interval_seconds))
 
     def _scan_once(self, config: AppConfig) -> dict[str, Any]:
-        watch_folder = Path(config.watch_folder) if config.watch_folder else None
-        if not watch_folder:
+        profiles = list(config.watch_folders)
+        if not profiles:
             self._set_status(
                 state="config_required",
                 watcher_enabled=False,
                 watch_folder="",
-                last_error="Watch folder is not configured.",
+                watch_folder_count=0,
+                missing_watch_folder_count=0,
+                profile_statuses=[],
+                last_error="No watch folders are configured.",
             )
-            return {"ok": False, "message": "Watch folder is not configured.", "queued": 0, "ignored": 0}
-        if not watch_folder.exists() or not watch_folder.is_dir():
-            message = f"Watch folder is missing: {watch_folder}"
-            self._set_status(
-                state="watch_folder_missing",
-                watcher_enabled=False,
-                watch_folder=str(watch_folder),
-                last_error=message,
-            )
-            logger.warning(message)
-            return {"ok": False, "message": message, "queued": 0, "ignored": 0}
+            return {"ok": False, "message": "No watch folders are configured.", "queued": 0, "ignored": 0, "missing": 0}
 
         queued = 0
         ignored = 0
         scanned = 0
-        self._set_status(state="running", watcher_enabled=True, watch_folder=str(watch_folder), last_error="")
-        logger.info("Starting watcher scan: %s", watch_folder)
-        try:
-            for candidate in _iter_files(watch_folder):
-                if self._stop_event.is_set() or self._pause_event.is_set():
-                    break
-                scanned += 1
-                ignore, reason = should_ignore_path(candidate, watch_folder, config)
-                if ignore:
-                    ignored += 1
-                    logger.debug("Ignoring %s: %s", candidate, reason)
-                    continue
-                logger.info("Discovered candidate clip: %s", candidate)
-                if self._handle_candidate(candidate, config):
-                    queued += 1
-        except PermissionError as exc:
-            error = f"Permission denied scanning watch folder: {redact(str(exc))}"
-            logger.warning(error)
-            self._set_status(state="error", watcher_enabled=False, last_error=error)
-            return {"ok": False, "message": error, "queued": queued, "ignored": ignored}
-        except OSError as exc:
-            error = f"Watcher scan failed: {redact(str(exc))}"
-            logger.warning(error)
-            self._set_status(state="error", watcher_enabled=False, last_error=error)
-            return {"ok": False, "message": error, "queued": queued, "ignored": ignored}
+        missing = 0
+        errors: list[str] = []
+        statuses: list[dict[str, Any]] = []
 
+        logger.info("Starting watcher scan for %s profile(s).", len(profiles))
+        for profile in profiles:
+            if self._stop_event.is_set() or self._pause_event.is_set():
+                break
+            watch_folder = Path(profile.path)
+            exists = watch_folder.is_dir()
+            statuses.append(_profile_status(profile, exists))
+            if not exists:
+                missing += 1
+                logger.warning("Watch folder missing for profile %s: %s", profile.id, watch_folder)
+                continue
+
+            archive_folder = profile_uploaded_folder(profile)
+            try:
+                for candidate in _iter_files(watch_folder, archive_folder):
+                    if self._stop_event.is_set() or self._pause_event.is_set():
+                        break
+                    scanned += 1
+                    ignore, reason = should_ignore_path(candidate, watch_folder, config)
+                    if ignore:
+                        ignored += 1
+                        logger.debug("Ignoring %s: %s", candidate, reason)
+                        continue
+                    logger.info("Discovered candidate clip in profile %s: %s", profile.id, candidate)
+                    if self._handle_candidate(candidate, config, profile):
+                        queued += 1
+            except PermissionError as exc:
+                message = f"Permission denied scanning {profile.name}: {redact(str(exc))}"
+                logger.warning(message)
+                errors.append(message)
+            except OSError as exc:
+                message = f"Watcher scan failed for {profile.name}: {redact(str(exc))}"
+                logger.warning(message)
+                errors.append(message)
+
+        valid_count = len(profiles) - missing
+        if valid_count == 0:
+            state = "watch_folders_missing"
+            watcher_enabled = False
+            last_error = "All configured watch folders are missing."
+        elif errors:
+            state = "running"
+            watcher_enabled = True
+            last_error = "; ".join(errors[-3:])
+        else:
+            state = "running"
+            watcher_enabled = True
+            last_error = "" if missing == 0 else f"{missing} watch folder(s) are missing."
+
+        message = f"Scan complete. Queued {queued} clip(s) from {valid_count} available folder(s)."
         self._set_status(
+            state=state,
+            watcher_enabled=watcher_enabled,
+            watch_folder=profiles[0].path,
+            watch_folder_count=len(profiles),
+            missing_watch_folder_count=missing,
+            profile_statuses=statuses,
             last_scan_time=_timestamp(),
             scanned_files=scanned,
             queued_files=queued,
             ignored_files=ignored,
             in_progress_path="",
-            message=f"Scan complete. Queued {queued} clip(s).",
+            last_error=last_error,
+            message=message,
         )
-        logger.info("Watcher scan complete: scanned=%s ignored=%s queued=%s", scanned, ignored, queued)
-        return {"ok": True, "message": f"Scan complete. Queued {queued} clip(s).", "queued": queued, "ignored": ignored}
+        logger.info("Watcher scan complete: profiles=%s available=%s missing=%s scanned=%s ignored=%s queued=%s", len(profiles), valid_count, missing, scanned, ignored, queued)
+        return {
+            "ok": valid_count > 0,
+            "message": message,
+            "queued": queued,
+            "ignored": ignored,
+            "scanned": scanned,
+            "missing": missing,
+            "profiles": statuses,
+            "errors": errors,
+        }
 
-    def _handle_candidate(self, candidate: Path, config: AppConfig) -> bool:
+    def _handle_candidate(self, candidate: Path, config: AppConfig, profile: WatchFolderProfile) -> bool:
         state = StateStore()
         try:
-            job = state.get_latest_job_by_source_path(candidate) or state.create_or_get_job(candidate)
+            job = state.get_latest_job_by_source_path(candidate)
+            if job and not job.get("watch_folder_id"):
+                # create_or_get_job backfills profile ownership for legacy jobs.
+                job = state.create_or_get_job(candidate, profile.id, profile.path)
+            elif not job:
+                job = state.create_or_get_job(candidate, profile.id, profile.path)
             job_id = int(job["id"])
             status = job["status"]
-            logger.info("Job %s found/created for %s with status %s.", job_id, candidate.name, status)
+            logger.info("Job %s found/created for %s in profile %s with status %s.", job_id, candidate.name, profile.id, status)
 
             if status == "detected":
                 job = state.transition_job(job_id, "waiting_for_file_ready", "Waiting for file to become stable.")
@@ -790,8 +848,46 @@ class ClipWorker:
                     setattr(self._status, key, value)
 
 
-def _iter_files(watch_folder: Path) -> list[Path]:
-    return [path for path in watch_folder.rglob("*") if path.is_file()]
+def _iter_files(watch_folder: Path, archive_folder: Path) -> list[Path]:
+    """Return files while pruning the app-owned archive subtree.
+
+    `ClipDis Uploaded` lives inside the watch root in v1.1.0. It must be
+    excluded before discovery so archived clips can never become jobs again.
+    """
+    files: list[Path] = []
+    archive_resolved = archive_folder.resolve(strict=False)
+    for root, dirs, names in os.walk(watch_folder):
+        root_path = Path(root)
+        kept_dirs: list[str] = []
+        for dirname in dirs:
+            child = (root_path / dirname).resolve(strict=False)
+            try:
+                child.relative_to(archive_resolved)
+                logger.debug("Pruning archive subtree from watcher scan: %s", child)
+                continue
+            except ValueError:
+                kept_dirs.append(dirname)
+        dirs[:] = kept_dirs
+        for name in names:
+            files.append(root_path / name)
+    return files
+
+
+def _profile_status(profile: WatchFolderProfile, exists: bool | None = None) -> dict[str, Any]:
+    available = Path(profile.path).is_dir() if exists is None else bool(exists)
+    return {
+        "id": profile.id,
+        "name": profile.name,
+        "path": profile.path,
+        "uploadedPath": str(profile_uploaded_folder(profile)),
+        "exists": available,
+        "showValorantStats": bool(profile.show_valorant_stats),
+        "captionEnabled": bool(profile.caption_enabled),
+    }
+
+
+def _profile_statuses(config: AppConfig) -> list[dict[str, Any]]:
+    return [_profile_status(profile) for profile in config.watch_folders]
 
 
 def _timestamp() -> str:
