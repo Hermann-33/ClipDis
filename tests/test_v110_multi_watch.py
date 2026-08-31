@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,6 +51,19 @@ class DummyStats:
         }
 
 
+def _same_path(left: str | Path, right: str | Path) -> bool:
+    left_value = os.path.normcase(os.path.abspath(str(Path(left).resolve(strict=False))))
+    right_value = os.path.normcase(os.path.abspath(str(Path(right).resolve(strict=False))))
+    if left_value == right_value:
+        return True
+    # Windows hosted runners can expose TEMP through an 8.3 alias in one
+    # source and a long path in another. samefile resolves both when present.
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return False
+
+
 class MultiWatchConfigTests(unittest.TestCase):
     def test_v1_config_migrates_once_and_keeps_stable_profile_id(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -77,7 +91,7 @@ class MultiWatchConfigTests(unittest.TestCase):
             self.assertTrue(profile.show_valorant_stats)
             self.assertFalse(profile.caption_enabled)
             self.assertEqual(profile.caption_text, "")
-            self.assertEqual(profile_uploaded_folder(profile), watch / UPLOADED_DIR_NAME)
+            self.assertTrue(_same_path(profile_uploaded_folder(profile), watch / UPLOADED_DIR_NAME))
             self.assertTrue((root / "config.v1.backup.json").is_file())
             self.assertTrue(uploaded.is_dir())
 
@@ -111,7 +125,7 @@ class MultiWatchStateAndWorkerTests(unittest.TestCase):
             store = StateStore(root / "state.db")
             job = store.create_or_get_job(clip, "profile-1", root)
             self.assertEqual(job["watch_folder_id"], "profile-1")
-            self.assertEqual(Path(job["watch_folder_path"]), root.resolve())
+            self.assertTrue(_same_path(job["watch_folder_path"], root))
 
     def test_archive_subtree_is_pruned_before_discovery(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -156,8 +170,8 @@ class ArchiveAndClearTests(unittest.TestCase):
             )
             self.assertTrue(result_a.ok)
             self.assertTrue(result_b.ok)
-            self.assertEqual(Path(result_a.archive_path).parent, profile_uploaded_folder(pa))
-            self.assertEqual(Path(result_b.archive_path).parent, profile_uploaded_folder(pb))
+            self.assertTrue(_same_path(Path(result_a.archive_path).parent, profile_uploaded_folder(pa)))
+            self.assertTrue(_same_path(Path(result_b.archive_path).parent, profile_uploaded_folder(pb)))
 
     def test_clear_one_does_not_touch_other_profile_and_skips_directories(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -212,7 +226,25 @@ class ArchiveAndClearTests(unittest.TestCase):
             service = WatchFolderService(config_path, store)
             result = service.remove_profile(profile.id)
             self.assertFalse(result["ok"])
-            self.assertIn("active clip jobs", result["message"])
+            self.assertIn("active or failed clip jobs", result["message"])
+
+    def test_profile_removal_is_blocked_by_failed_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            watch = root / "Watch"
+            watch.mkdir()
+            profile = new_watch_folder_profile(watch, name="Watch")
+            config_path = root / "config.json"
+            save_config(AppConfig(watch_folders=[profile]), config_path)
+            store = StateStore(root / "state.db")
+            clip = watch / "clip.mp4"
+            clip.write_bytes(b"clip")
+            job = store.create_or_get_job(clip, profile.id, profile.path)
+            store.mark_failed(int(job["id"]), "test_failure", "intentional test failure")
+            service = WatchFolderService(config_path, store)
+            result = service.remove_profile(profile.id)
+            self.assertFalse(result["ok"])
+            self.assertIn("active or failed clip jobs", result["message"])
 
 
 class DiscordProfileTests(unittest.TestCase):
