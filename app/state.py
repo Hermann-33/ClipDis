@@ -46,6 +46,22 @@ class InvalidTransitionError(ValueError):
     pass
 
 
+class _ClosingConnection(sqlite3.Connection):
+    """SQLite connection whose context-manager exit also closes the handle.
+
+    sqlite3.Connection.__exit__ commits or rolls back but intentionally leaves
+    the connection open. StateStore opens short-lived connections throughout
+    the app, so closing on context exit prevents leaked Windows file handles and
+    makes temporary/test databases removable immediately.
+    """
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 @dataclass(frozen=True)
 class JobIdentity:
     fingerprint: str
@@ -542,7 +558,7 @@ class StateStore:
             return row_to_dict(row) if row else None
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, factory=_ClosingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
