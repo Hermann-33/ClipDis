@@ -6,7 +6,7 @@ Latest public release: **v1.0.0**.
 
 Current development target on `feature/v1.1.0-multi-watch-folders`: **v1.1.0 — Unreleased**.
 
-The v1.1.0 backend and QML/GuiBridge integration are implemented on the feature branch. Local Windows source checks, debug/release packaged launch verification, computer-use UX testing, and documentation synchronization have been completed. The branch remains an unreleased release candidate pending review and clean-machine release QA.
+The v1.1.0 backend and QML/GuiBridge integration are implemented on the feature branch. Local Windows source checks, debug/release packaged launch verification, debug-package computer-use UX testing, and documentation synchronization have been completed. The native computer-use surface became unavailable before the minimum-size and release-build interaction matrices could be repeated. The branch remains an unreleased release candidate pending that QA, review, and clean-machine release QA.
 
 ## Summary
 
@@ -169,6 +169,7 @@ v1.1 does not intentionally change the packaging model.
 ## Known Technical Debt / Pending Work
 
 - temporary config compatibility mirrors exist during migration and should be reviewed after all old call sites are removed.
+- repeat the minimum-size and release-build interaction matrices when native computer use is available.
 - clean Windows VM QA remains required before public release.
 - appdata name remains `ValorantClipUploader` intentionally for compatibility.
 - installer/signing/uninstall cleanup remain outside this feature.

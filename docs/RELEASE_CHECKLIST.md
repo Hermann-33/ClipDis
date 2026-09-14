@@ -4,7 +4,7 @@ Use this checklist before publishing a Windows release. For v1.1.0, every multi-
 
 ## v1.1.0 release-candidate verification (2026-09-14)
 
-The feature branch passed Python compilation, 21 automated tests, source smoke/QML/diagnostic checks, real-FFmpeg two-profile pipeline tests with mocked HTTP success, and debug/release onedir launch checks. Computer-use QA covered the profile dashboard, Settings cards/editor, filter options, destructive dialogs, and normal/minimum window sizes. Live Discord/Henrik calls and clean-machine QA remain release-time checks because no disposable credentials or clean VM were supplied.
+The feature branch passed Python compilation, 21 automated tests, source smoke/QML/diagnostic checks, real-FFmpeg two-profile pipeline tests with mocked HTTP success, and debug/release onedir launch checks. Computer-use QA covered the debug package's profile dashboard, Settings cards/editor, filter options, destructive dialogs, and normal 960x620 layout. A direct Qt render verified the dashboard at 760x520. The native computer-use surface became unavailable before the minimum-size and release-package interaction matrices could be repeated. A live webhook existence check passed without printing the credential; a live upload/Henrik result and clean-machine QA remain release-time checks.
 
 ## Automated Gates
 

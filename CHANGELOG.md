@@ -39,7 +39,7 @@
 ### Verification
 
 - Windows source compilation, 21 automated tests, smoke/QML/diagnostic checks, a real-FFmpeg two-profile pipeline with mocked HTTP success, and debug/release onedir launch checks passed on the feature branch.
-- Computer-use QA covered zero/two-profile dashboard states, visible profile management, folder filtering, editor layout, destructive scope copy, and normal/minimum window layouts.
+- Computer-use QA covered zero/two-profile dashboard states, visible profile management, folder filtering, editor layout, destructive scope copy, and the normal 960x620 layout. A direct Qt render verified the dashboard at the 760x520 minimum; the native computer-use surface became unavailable before the minimum-size and release-build interactions could be repeated.
 - Live Discord/Henrik verification was not performed because no test credential was supplied; HTTP mocks verified caption composition, mention suppression, profile-specific Henrik gating, success transitions and archive routing.
 
 ## v1.0.0 - Initial Public Release
