@@ -94,6 +94,8 @@ ComboBox {
         function optionText() {
             if (control.textRole && typeof model !== "undefined" && model[control.textRole] !== undefined)
                 return model[control.textRole]
+            if (control.textRole && typeof modelData === "object" && modelData !== null && modelData[control.textRole] !== undefined)
+                return modelData[control.textRole]
             if (typeof modelData === "object" && modelData !== null && modelData.label !== undefined)
                 return modelData.label
             return modelData

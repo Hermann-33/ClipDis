@@ -1,6 +1,7 @@
 ﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQml.Models
 import "components"
 
 Item {
@@ -12,7 +13,17 @@ Item {
     property var navigate
     property int refreshToken: 0
     property var status: readStatus(refreshToken)
-    property var clips: readClips(refreshToken)
+    property var allClips: readClips(refreshToken)
+    property string filterProfileId: ""
+    property var profiles: readProfiles(refreshToken)
+    property var filterOptions: [{name: "All Folders", id: ""}].concat(profiles)
+    property var clips: allClips.filter(function(c) { return !filterProfileId || c.watch_folder_id === filterProfileId })
+    onFilterProfileIdChanged: { clearSelection(); syncDetailClip() }
+    function readProfiles(token) {
+        if (!appBridge) return []
+        var r = appBridge.getWatchFolders()
+        return r.ok ? r.data : []
+    }
     property var selectedIds: []
     property int detailJobId: 0
     property var focusedClip: ({})
@@ -84,6 +95,7 @@ Item {
 
     function refreshLocalOnly() {
         refreshToken += 1
+        if (filterProfileId && !profiles.some(function(p) { return p.id === filterProfileId })) filterProfileId = ""
         pruneSelection()
         pruneThumbnailRequests()
         syncDetailClip()
@@ -228,13 +240,6 @@ Item {
         return result
     }
 
-    function runClearUploaded() {
-        var result = appBridge.clearUploadedFolder()
-        messageOk = result.ok === true
-        message = result.message || "Uploaded folder cleared."
-        silentRefresh()
-    }
-
     function runUploadFocused() {
         if (detailJobId <= 0)
             return
@@ -329,7 +334,7 @@ Item {
                         }
                     }
                     ModernButton {
-                        text: allVisibleSelected() ? "Clear Selection" : "Select All"
+                        text: allVisibleSelected() ? "Clear Selection" : "Select All Visible"
                         theme: root.theme
                         compact: true
                         secondary: !allVisibleSelected()
@@ -356,12 +361,12 @@ Item {
                         onClicked: { pendingConfirm = "delete"; confirmDialog.open() }
                     }
                     ModernButton {
-                        text: "Clear Uploaded"
+                        text: "Clear Uploaded ▾"
                         theme: root.theme
                         compact: true
                         Layout.fillWidth: true
                         secondary: true
-                        onClicked: { pendingConfirm = "clear"; confirmDialog.open() }
+                        onClicked: clearMenu.popup()
                     }
                 }
 
@@ -386,13 +391,30 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
+            AppComboBox {
+                id: folderFilter
+                objectName: "folderFilter"
+                theme: root.theme
+                textRole: "name"
+                valueRole: "id"
+                model: root.filterOptions
+                currentIndex: Math.max(0, root.filterOptions.findIndex(function(p) { return p.id === root.filterProfileId }))
+                onActivated: root.filterProfileId = currentValue || ""
+                Layout.preferredWidth: 190
+            }
+            Item { Layout.fillWidth: true }
+            ModernButton { text: "Open Folders ▾"; theme: root.theme; compact: true; secondary: true; enabled: profiles.length > 0; onClicked: openMenu.popup() }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 10
 
             Card {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                title: "Clips in Watch Folder"
+                title: "Clips"
                 theme: root.theme
 
                 ColumnLayout {
@@ -403,13 +425,23 @@ Item {
 
                     Label {
                         visible: clips.length === 0
-                        text: "No manageable clips in the watch folder."
+                        text: profiles.length === 0 ? "No watch folders yet\nAdd the folder where your recorder saves clips." : (filterProfileId ? "No clips in this folder." : "No clips yet.")
+                        wrapMode: Text.Wrap
+                        horizontalAlignment: Text.AlignHCenter
+                        Layout.fillWidth: true
                         color: theme.muted
                         font.pixelSize: 14
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 58
                     }
 
+                    ModernButton {
+                        visible: profiles.length === 0
+                        text: "Add Watch Folder"
+                        theme: root.theme
+                        Layout.alignment: Qt.AlignHCenter
+                        onClicked: if (navigate) navigate("Settings")
+                    }
                     GridView {
                         id: clipGrid
                         visible: clips.length > 0
@@ -475,6 +507,7 @@ Item {
                             maximumLineCount: 2
                             wrapMode: Text.Wrap
                         }
+                        DetailLine { label: "Folder"; value: focusedClip.profileName || "Unknown"; theme: root.theme }
                         DetailLine { label: "Size"; value: focusedClip.size_display || "Unknown"; theme: root.theme }
                         DetailLine { label: "Status"; value: focusedClip.friendly_status || focusedClip.statusLabel || "Ready"; theme: root.theme }
                         Label {
@@ -508,6 +541,38 @@ Item {
                 }
             }
         }
+    }
+
+    Menu {
+        id: clearMenu
+        Instantiator {
+            model: root.profiles
+            delegate: MenuItem { required property var modelData; text: modelData.name + "…"; onTriggered: folderActions.clear(modelData.id) }
+            onObjectAdded: function(index, object) { clearMenu.insertItem(index, object) }
+            onObjectRemoved: function(index, object) { clearMenu.removeItem(object) }
+        }
+        MenuSeparator {}
+        MenuItem { text: "Clear All…"; enabled: root.profiles.length > 0; onTriggered: folderActions.clear("") }
+    }
+    Menu {
+        id: openMenu
+        Instantiator {
+            model: root.profiles.reduce(function(items, p) { return items.concat([{id: p.id, name: p.name, archive: false}, {id: p.id, name: p.name, archive: true}]) }, [])
+            delegate: MenuItem {
+                required property var modelData
+                text: modelData.name + (modelData.archive ? " · Open Uploaded" : " · Open Watch")
+                onTriggered: {
+                    var r = modelData.archive ? appBridge.openUploadedFolder(modelData.id) : appBridge.openWatchFolder(modelData.id)
+                    root.message = r.message; root.messageOk = r.ok
+                }
+            }
+            onObjectAdded: function(index, object) { openMenu.insertItem(index, object) }
+            onObjectRemoved: function(index, object) { openMenu.removeItem(object) }
+        }
+    }
+    WatchFolderActions {
+        id: folderActions; appBridge: root.appBridge; theme: root.theme
+        onFinished: function(r) { root.message = r.message; root.messageOk = r.ok; root.silentRefresh() }
     }
 
     Timer {
@@ -549,8 +614,7 @@ Item {
                 runDeleteSelected()
             else if (pendingConfirm === "single-delete")
                 runDeleteFocused()
-            else if (pendingConfirm === "clear")
-                runClearUploaded()
+
             pendingConfirm = ""
             pendingDeleteJobId = 0
         }

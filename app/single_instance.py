@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 
 from app.qt_runtime import configure_qt_runtime
@@ -14,7 +15,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 logger = logging.getLogger(__name__)
 
 
-INSTANCE_NAME = "ClipDisSingleInstance"
+INSTANCE_NAME = os.environ.get("CLIPDIS_INSTANCE_NAME", "ClipDisSingleInstance")
 
 
 def notify_existing_instance(name: str = INSTANCE_NAME, message: str = "show", timeout_ms: int = 500) -> bool:

@@ -6,7 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from app.config import AppConfig
+from app.config import (
+    AppConfig,
+    WatchFolderProfile,
+    get_watch_folder_profile,
+    path_is_within,
+    profile_uploaded_folder,
+)
 from app.secrets import redact
 
 
@@ -81,10 +87,37 @@ def cleanup_compressed_file(path: str | Path) -> ArchiveResult:
         return ArchiveResult(False, category="cleanup_compressed_error", message=redact(str(exc)))
 
 
+def resolve_job_profile(job: dict[str, Any], config: AppConfig) -> WatchFolderProfile | None:
+    profile_id = str(job.get("watch_folder_id") or "").strip()
+    if profile_id:
+        profile = get_watch_folder_profile(config, profile_id)
+        if profile is not None:
+            return profile
+
+    # Backward-compatible recovery for jobs created before v1.1.0. Only accept
+    # an unambiguous source-root match; overlapping roots are rejected by config
+    # validation, so normally at most one profile can match.
+    source_path = str(job.get("source_path") or "").strip()
+    if source_path:
+        matches = [profile for profile in config.watch_folders if profile.path and path_is_within(source_path, profile.path)]
+        if len(matches) == 1:
+            return matches[0]
+    return None
+
+
 def archive_uploaded_job(job: dict[str, Any], config: AppConfig) -> ArchiveResult:
     if job.get("status") != "uploaded":
         return ArchiveResult(False, category="archive_invalid_state", message="Only uploaded jobs can be archived.")
-    return archive_original(str(job.get("source_path") or ""), config.uploaded_folder)
+
+    profile = resolve_job_profile(job, config)
+    if profile is None:
+        return ArchiveResult(
+            False,
+            category="archive_profile_missing",
+            message="Could not determine which watch folder owns this uploaded clip.",
+        )
+
+    return archive_original(str(job.get("source_path") or ""), profile_uploaded_folder(profile))
 
 
 def classify_archive_error(exception: Exception) -> str:

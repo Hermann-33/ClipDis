@@ -143,21 +143,40 @@ For onefile:
 .\dist\ClipDis.exe --diagnose
 ```
 
+## Automated Clean-Runner Packaging Gate
+
+The `v1.1 packaged Windows QA` GitHub Actions workflow builds the release on a
+fresh hosted Windows runner. It checks out Git LFS payloads, verifies the FFmpeg
+binaries are materialized rather than pointer files, builds `dist_release`,
+checks required QML/FFmpeg/license files, rejects stray `icu*.dll` regressions,
+and runs the packaged `--smoke-check`, `--qml-smoke-check`, and `--diagnose`
+commands with isolated clean AppData.
+
+This is a packaging/clean-environment gate, not a replacement for interactive
+Windows UI/tray testing or live service credentials.
+
 ## Clean-Machine QA Checklist
 
-- Test on a Windows machine or VM without Python installed.
-- Test without system FFmpeg installed.
-- Start with no existing `%APPDATA%\ValorantClipUploader` folder.
+- Test the release package on a Windows machine/VM or equivalent fresh Windows runner.
+- Test without relying on system FFmpeg; bundled FFmpeg/FFprobe must be present and usable.
+- Start with no existing `%APPDATA%\ValorantClipUploader` folder for the clean-state pass.
 - First run opens the tray app and dashboard.
-- Settings can save watch and uploaded folders.
+- Zero-profile onboarding clearly allows adding the first watch folder.
+- Add at least two independent watch-folder profiles.
+- Each profile derives `<watch root>\ClipDis Uploaded`; there is no editable uploaded-folder setting.
+- Profile captions and Valorant-stat toggles remain independent while Riot/Henrik identity stays global.
+- Dashboard profile labels, filtering, and Select All Visible semantics work.
+- Open Watch/Open Uploaded target the correct profile.
+- Clear-one leaves other profile archives untouched; Clear All reports aggregate results.
+- A missing profile does not stop other valid profiles from working.
 - Bundled FFmpeg test passes.
-- Discord webhook test passes with a user-provided webhook.
-- Henrik stats test passes with a user-provided API key.
-- Upload one small test clip.
-- Restart and verify config, secrets, state, and thumbnails persist.
+- Discord webhook test passes with a user-provided disposable webhook before release authorization.
+- Henrik stats test passes with a user-provided API key for a stats-enabled profile.
+- Upload at least one small test clip through the real Discord path before release authorization.
+- Restart and verify profile IDs/settings, secrets, state, and thumbnails persist.
 - Start with Windows writes/removes the HKCU Run value named `ClipDis`.
 - Tray tooltip is `ClipDis`; tray menu contains only `Open Dashboard` and `Exit`.
 - Close hides to tray; tray Exit quits.
+- Normal and minimum supported window sizes remain usable without clipping/overlap.
 
-Installer packaging, signing, shortcuts, uninstall cleanup, and final QA on a
-clean Windows VM are separate release tasks and are not covered here.
+Installer packaging, signing, shortcuts, uninstall cleanup, and final interactive QA on a clean Windows VM remain separate release tasks unless explicitly covered by the release process.

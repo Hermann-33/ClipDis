@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "components"
@@ -11,6 +11,15 @@ ApplicationWindow {
     minimumHeight: 520
     visible: true
     title: "ClipDis"
+    font.family: "Segoe UI"
+    palette.window: "#1b2029"
+    palette.windowText: "#edf1f5"
+    palette.base: "#11151c"
+    palette.text: "#edf1f5"
+    palette.button: "#222936"
+    palette.buttonText: "#edf1f5"
+    palette.highlight: "#4fb595"
+    palette.highlightedText: "#0f1216"
     flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowMinimizeButtonHint
     color: theme.bg
 

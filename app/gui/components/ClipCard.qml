@@ -86,7 +86,7 @@ Rectangle {
 
                 Text {
                     anchors.centerIn: parent
-                    text: root.checked ? "✓" : ""
+                    text: root.checked ? "âœ“" : ""
                     color: "#ffffff"
                     font.pixelSize: 14
                     font.bold: true
@@ -144,7 +144,7 @@ Rectangle {
             spacing: 6
             Text {
                 Layout.fillWidth: true
-                text: clipData.size_display || clipData.originalSize || ""
+                text: clipData.profileName || "Unknown folder"
                 color: theme.muted
                 font.pixelSize: 11
                 elide: Text.ElideRight

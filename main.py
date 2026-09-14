@@ -17,8 +17,8 @@ from PySide6.QtGui import QIcon, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication
 
-from app.config import app_data_dir, config_path, load_config, state_db_path, work_dir
-from app.discord_uploader import redact_webhook_url, validate_webhook_url
+from app.config import profile_uploaded_folder, app_data_dir, config_path, load_config, state_db_path, work_dir
+from app.discord_uploader import validate_webhook_url
 from app.ffmpeg_runner import (
     get_bundled_ffmpeg_path,
     get_bundled_ffprobe_path,
@@ -159,8 +159,12 @@ def _diagnose_runtime() -> None:
     print("ClipDis diagnostics")
     print(f"app_data_dir={app_data_dir()}")
     print(f"config_path={config_path()}")
-    print(f"watch_folder={cfg.watch_folder or 'not configured'}")
-    print(f"uploaded_folder={cfg.uploaded_folder or 'not configured'}")
+    print(f"watch_profile_count={len(cfg.watch_folders)}")
+    for profile in cfg.watch_folders:
+        print(f"profile_id={profile.id} name={redact(profile.name)}")
+        print(f"watch_path={profile.path}")
+        print(f"uploaded_path={profile_uploaded_folder(profile)}")
+        print(f"exists={Path(profile.path).is_dir()} stats_enabled={profile.show_valorant_stats} caption_enabled={profile.caption_enabled}")
     print(f"work_folder={work_dir()}")
     print(f"state_db={state_db_path()}")
     print(f"ffmpeg_resolved={ffmpeg_path}")
@@ -170,11 +174,9 @@ def _diagnose_runtime() -> None:
     print(f"ffmpeg_validation_ok={ffmpeg_result.ok}")
     print(f"ffmpeg_validation_category={ffmpeg_result.category}")
     print(f"work_writable={_folder_writable(work_dir())}")
-    print(f"archive_writable={_folder_writable(Path(cfg.uploaded_folder)) if cfg.uploaded_folder else False}")
     webhook_valid = validate_webhook_url(webhook)
     webhook_live = _webhook_live_status(webhook) if webhook_valid[0] else {"ok": False, "status_code": "", "message": webhook_valid[1]}
     print(f"webhook_configured={bool(webhook)}")
-    print(f"webhook_redacted={redact_webhook_url(webhook)}")
     print(f"webhook_shape_valid={webhook_valid[0]}")
     print(f"webhook_live_ok={webhook_live['ok']}")
     print(f"webhook_live_status={webhook_live['status_code']}")
@@ -244,10 +246,13 @@ def _test_valorant_stats(name: str | None = None, tag: str | None = None, region
         cfg = replace(cfg, riot_tagline=tag)
     if region:
         cfg = replace(cfg, valorant_region=region)
+    # This command validates the shared credentials themselves. Per-profile
+    # switches control upload behavior and must not disable this explicit test.
+    cfg = replace(cfg, use_henrik_stats=True)
     key_present = bool(get_secret(HENRIK_API_KEY))
     clear_valorant_stats_cache()
     print("ClipDis Valorant stats test")
-    print(f"henrik_enabled={bool(cfg.use_henrik_stats)}")
+    print("credential_test_enabled=True")
     print(f"name_present={bool((cfg.riot_username or '').strip())}")
     print(f"tag_present={bool((cfg.riot_tagline or '').strip())}")
     print(f"region={cfg.valorant_region or 'ap'}")
@@ -309,33 +314,23 @@ def _list_watch_clips() -> None:
     from app.file_ready import should_ignore_path
 
     cfg = load_config()
-    watch = Path(cfg.watch_folder) if cfg.watch_folder else None
-    if not watch or not watch.is_dir():
-        print("watch_folder_missing=True")
-        return
-    manageable: list[tuple[int, Path]] = []
-    ignored = 0
-    for candidate in watch.rglob("*.mp4"):
-        if not candidate.is_file():
+    from app.worker import _iter_files
+    print(f"watch_profile_count={len(cfg.watch_folders)}")
+    for profile in cfg.watch_folders:
+        watch = Path(profile.path)
+        print(f"profile_id={profile.id} name={redact(profile.name)} exists={watch.is_dir()}")
+        if not watch.is_dir():
             continue
-        ignore, _reason = should_ignore_path(candidate, watch, cfg)
-        if ignore:
-            ignored += 1
-            continue
-        try:
-            manageable.append((candidate.stat().st_size, candidate))
-        except OSError:
-            ignored += 1
-    manageable.sort()
-    print(f"watch_folder={watch}")
-    print(f"manageable_mp4_count={len(manageable)}")
-    print(f"ignored_mp4_count={ignored}")
-    print("smallest")
-    for size, path in manageable[:5]:
-        print(f"{path.name}\t{size}\t{size / 1024 / 1024:.2f} MB")
-    print("largest")
-    for size, path in manageable[-5:]:
-        print(f"{path.name}\t{size}\t{size / 1024 / 1024:.2f} MB")
+        count = 0
+        for candidate in _iter_files(watch, profile_uploaded_folder(profile)):
+            ignored, _ = should_ignore_path(candidate, watch, cfg)
+            if not ignored:
+                try:
+                    print(f"{profile.id}\t{candidate.name}\t{candidate.stat().st_size}")
+                    count += 1
+                except OSError:
+                    pass
+        print(f"manageable_clip_count={count}")
 
 
 def _retry_failed_category(category: str, limit: int) -> int:
