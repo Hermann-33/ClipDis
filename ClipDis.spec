@@ -176,6 +176,12 @@ unused_qt_payload_markers = (
 
 
 def keep_qt_payload(entry):
+    # Qt 6.11 uses the Windows ICU API. Unrelated PATH tools (e.g. Poppler)
+    # can supply same-named ICU DLLs with incompatible versioned exports.
+    # Let Windows resolve its own system ICU instead of freezing PATH copies.
+    name = Path(str(entry[0])).name.lower()
+    if name in {"icuuc.dll", "icuin.dll", "icu.dll"} or (name.startswith("icudt") and name.endswith(".dll")):
+        return False
     haystack = " ".join(str(part) for part in entry)
     return not any(marker in haystack for marker in unused_qt_payload_markers)
 

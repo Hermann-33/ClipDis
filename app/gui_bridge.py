@@ -5,7 +5,7 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,9 @@ from PySide6.QtCore import QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QFileDialog
 
-from app.config import AppConfig, config_path, load_config, logs_dir, save_config, validate_config
+from app.archive import resolve_job_profile
+from app.watch_folders import WatchFolderService
+from app.config import profile_uploaded_folder, path_is_within, AppConfig, config_path, load_config, logs_dir, save_config, validate_config
 from app.discord_uploader import validate_webhook_url
 from app.ffmpeg_runner import (
     get_bundled_ffmpeg_path,
@@ -50,6 +52,7 @@ class GuiBridge(QObject):
         self._worker = worker
         self._state = StateStore()
         self._state.initialize_database()
+        self._folders = WatchFolderService(state_store=self._state)
         self._thumbnail_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ClipThumbnail")
         self._thumbnail_lock = threading.Lock()
         self._thumbnail_inflight: set[int] = set()
@@ -81,10 +84,12 @@ class GuiBridge(QObject):
     def saveConfig(self, configObject: dict[str, Any]) -> dict[str, Any]:
         try:
             incoming = _normalize_config_input(configObject)
+            incoming = {k: v for k, v in incoming.items() if k not in {"watch_folders", "watch_folder", "uploaded_folder", "use_henrik_stats", "config_version"}}
             current = asdict(load_config())
             current.update(incoming)
             current["ffmpeg_source_mode"] = "bundled"
             current["ffmpeg_path"] = ""
+            current["watch_folders"] = load_config().watch_folders
             cfg = AppConfig(**_coerce_config(current))
             issues = validate_config(cfg)
             save_config(cfg)
@@ -222,7 +227,7 @@ class GuiBridge(QObject):
         issues = [
             issue
             for issue in validate_config(cfg)
-            if issue.field in {"watch_folder", "uploaded_folder", "ffmpeg", "ffprobe"}
+            if issue.field.startswith("watch_folders") or issue.field in {"ffmpeg", "ffprobe"}
         ]
         return {
             "ok": not issues,
@@ -235,7 +240,7 @@ class GuiBridge(QObject):
         try:
             cfg = load_config()
             clear_valorant_stats_cache()
-            result = fetch_valorant_stats(cfg)
+            result = fetch_valorant_stats(replace(cfg, use_henrik_stats=True))
             rank = result.rank or "Unknown"
             level = "Unknown" if result.account_level is None else str(result.account_level)
             message = f"Rank: {rank}. Level: {level}." if result.available else result.message
@@ -243,7 +248,7 @@ class GuiBridge(QObject):
                 "ok": result.available,
                 "message": message,
                 "data": {
-                    "enabled": bool(cfg.use_henrik_stats),
+                    "enabled": True,
                     "namePresent": bool((cfg.riot_username or "").strip()),
                     "tagPresent": bool((cfg.riot_tagline or "").strip()),
                     "region": cfg.valorant_region or "ap",
@@ -461,8 +466,8 @@ class GuiBridge(QObject):
             cfg = load_config()
             secrets = self.getRedactedSecretsStatus()
             startup_status = self.getStartupStatus()
-            watch_ok = bool(cfg.watch_folder and Path(cfg.watch_folder).is_dir())
-            uploaded_ok = bool(cfg.uploaded_folder and Path(cfg.uploaded_folder).is_dir())
+            watch_ok = any(Path(p.path).is_dir() for p in cfg.watch_folders)
+            uploaded_ok = watch_ok  # Archives are created on demand.
             ffmpeg_expected = get_bundled_ffmpeg_path()
             ffprobe_expected = get_bundled_ffprobe_path()
             ffmpeg_executable = resolve_ffmpeg_path(cfg) if ffmpeg_expected.is_file() else ""
@@ -475,8 +480,7 @@ class GuiBridge(QObject):
             missing = []
             if not watch_ok:
                 missing.append("watch folder")
-            if not uploaded_ok:
-                missing.append("uploaded folder")
+
             if not ffmpeg_ok:
                 missing.append("FFmpeg")
             if not webhook_ok:
@@ -501,7 +505,9 @@ class GuiBridge(QObject):
             "henrikOk": henrik_ok,
             "webhookDisplay": secrets["webhookDisplay"],
             "henrikDisplay": secrets["henrikDisplay"],
-            "henrikStatsEnabled": bool(cfg.use_henrik_stats),
+            "henrikStatsEnabled": any(p.show_valorant_stats for p in cfg.watch_folders),
+            "watchProfileCount": len(cfg.watch_folders),
+            "missingProfileCount": sum(not Path(p.path).is_dir() for p in cfg.watch_folders),
             "valorantRegion": cfg.valorant_region,
             "startupSupported": startup_status["supported"],
             "startupEnabled": startup_status["enabled"],
@@ -555,21 +561,69 @@ class GuiBridge(QObject):
             logger.exception("Startup status failed.")
             return {"ok": False, "supported": False, "enabled": False, "message": redact(str(exc)), "command": ""}
 
-    @Slot(result=dict)
-    def openWatchFolder(self) -> dict[str, Any]:
+    def _folder_call(self, method: str, *args, mutation: bool = False) -> dict[str, Any]:
         try:
-            return self._open_path(load_config().watch_folder, "Watch folder")
+            result = getattr(self._folders, method)(*args)
+            if mutation and result.get("ok"):
+                if self._worker:
+                    self._worker.reload_runtime_config()
+                self.dashboardDataChanged.emit()
+            return result
         except Exception as exc:
-            logger.exception("Open watch folder failed.")
-            return {"ok": False, "message": f"Could not open watch folder: {redact(str(exc))}"}
+            logger.exception("Watch-folder operation failed.")
+            return {"ok": False, "message": redact(str(exc)), "data": {}}
 
     @Slot(result=dict)
-    def openUploadedFolder(self) -> dict[str, Any]:
-        try:
-            return self._open_path(load_config().uploaded_folder, "Uploaded folder")
-        except Exception as exc:
-            logger.exception("Open uploaded folder failed.")
-            return {"ok": False, "message": f"Could not open uploaded folder: {redact(str(exc))}"}
+    def getWatchFolders(self):
+        return self._folder_call("get_profiles")
+
+    @Slot(str, result=dict)
+    def addWatchFolder(self, path: str):
+        return self._folder_call("add_profile", path, mutation=True)
+
+    @Slot(str, dict, result=dict)
+    def updateWatchFolder(self, profileId: str, changes: dict):
+        return self._folder_call("update_profile", profileId, changes, mutation=True)
+
+    @Slot(str, result=dict)
+    def removeWatchFolder(self, profileId: str):
+        return self._folder_call("remove_profile", profileId, mutation=True)
+
+    @Slot(str, result=dict)
+    def openWatchFolder(self, profileId: str):
+        result = self._folder_call("open_paths", profileId)
+        if result.get("ok"):
+            try:
+                return self._open_path(result["data"]["watchPath"], "Watch folder")
+            except Exception as exc:
+                return {"ok": False, "message": redact(str(exc)), "data": {}}
+        return result
+
+    @Slot(str, result=dict)
+    def openUploadedFolder(self, profileId: str):
+        result = self._folder_call("ensure_uploaded_folder", profileId)
+        if result.get("ok"):
+            try:
+                return self._open_path(result["data"]["path"], "Uploaded folder")
+            except Exception as exc:
+                return {"ok": False, "message": redact(str(exc)), "data": {}}
+        return result
+
+    @Slot(str, result=dict)
+    def previewClearUploaded(self, profileId: str):
+        return self._folder_call("preview_clear_uploaded", profileId)
+
+    @Slot(str, result=dict)
+    def clearUploaded(self, profileId: str):
+        return self._folder_call("clear_uploaded", profileId, mutation=True)
+
+    @Slot(result=dict)
+    def previewClearAllUploaded(self):
+        return self._folder_call("preview_clear_all_uploaded")
+
+    @Slot(result=dict)
+    def clearAllUploaded(self):
+        return self._folder_call("clear_all_uploaded", mutation=True)
 
     @Slot(result=dict)
     def openLogsFolder(self) -> dict[str, Any]:
@@ -690,7 +744,6 @@ class GuiBridge(QObject):
     def getDashboardClips(self) -> list[dict[str, Any]]:
         try:
             cfg = load_config()
-            watch_folder = Path(cfg.watch_folder).resolve(strict=False) if cfg.watch_folder else None
             visible_statuses = {
                 "detected",
                 "waiting_for_file_ready",
@@ -706,7 +759,8 @@ class GuiBridge(QObject):
                 if job.get("status") not in visible_statuses:
                     continue
                 source = Path(str(job.get("source_path") or ""))
-                if watch_folder and not _is_inside(source, watch_folder):
+                profile = resolve_job_profile(job, cfg)
+                if not profile or not path_is_within(source, profile.path) or path_is_within(source, profile_uploaded_folder(profile)):
                     continue
                 clips.append(self._dashboard_clip_for_qml(job, cfg))
             return clips[:60]
@@ -1040,8 +1094,7 @@ class GuiBridge(QObject):
                     "data": {"requested": 0, "deleted": 0, "skipped": 0, "failed": 0},
                 }
             cfg = load_config()
-            watch_folder = Path(cfg.watch_folder).resolve(strict=False) if cfg.watch_folder else None
-            if not watch_folder:
+            if not cfg.watch_folders:
                 return {
                     "ok": False,
                     "message": "Watch folder is not configured.",
@@ -1068,7 +1121,8 @@ class GuiBridge(QObject):
                     skipped += 1
                     errors.append(f"{job.get('original_filename') or job_id}: busy or already uploaded")
                     continue
-                if not _is_inside(source, watch_folder) or not source.is_file():
+                profile = resolve_job_profile(job, cfg)
+                if not profile or not path_is_within(source, profile.path) or path_is_within(source, profile_uploaded_folder(profile)) or not source.is_file():
                     skipped += 1
                     errors.append(f"{job.get('original_filename') or job_id}: file not found in watch folder")
                     continue
@@ -1105,32 +1159,6 @@ class GuiBridge(QObject):
                 "errors": [redact(str(exc))],
                 "data": {"requested": len(ids), "deleted": 0, "skipped": 0, "failed": len(ids)},
             }
-
-    @Slot(result=dict)
-    def clearUploadedFolder(self) -> dict[str, Any]:
-        try:
-            cfg = load_config()
-            if not cfg.uploaded_folder:
-                return {"ok": False, "message": "Uploaded folder is not configured.", "deleted": 0, "skipped": 0}
-            folder = Path(cfg.uploaded_folder)
-            if not folder.is_dir():
-                return {"ok": False, "message": "Uploaded folder does not exist.", "deleted": 0, "skipped": 0}
-            deleted = 0
-            skipped = 0
-            for path in folder.iterdir():
-                try:
-                    if path.is_file():
-                        path.unlink()
-                        deleted += 1
-                    else:
-                        skipped += 1
-                except OSError as exc:
-                    skipped += 1
-                    logger.warning("Could not clear uploaded file %s: %s", path, redact(str(exc)))
-            return {"ok": skipped == 0, "message": f"Cleared {deleted} archived file(s); skipped {skipped}.", "deleted": deleted, "skipped": skipped}
-        except Exception as exc:
-            logger.exception("Clear uploaded folder failed.")
-            return {"ok": False, "message": f"Could not clear uploaded folder: {redact(str(exc))}", "deleted": 0, "skipped": 0}
 
     @Slot(int, result=dict)
     def openClipFolder(self, jobId: int) -> dict[str, Any]:
@@ -1353,6 +1381,9 @@ def _job_error(job: dict[str, Any] | None) -> str:
 def _dashboard_clip_for_qml(job: dict[str, Any], config: AppConfig | None = None) -> dict[str, Any]:
     cfg = config or load_config()
     item = _job_for_qml(job)
+    profile = resolve_job_profile(job, cfg)
+    item["watch_folder_id"] = profile.id if profile else str(job.get("watch_folder_id") or "")
+    item["profileName"] = profile.name if profile else "Removed folder"
     status = str(job.get("status") or "")
     cached = cached_thumbnail_for_job(job, cfg)
     thumbnail_path = cached.path if cached.ok else ""

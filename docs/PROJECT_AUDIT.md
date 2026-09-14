@@ -6,7 +6,7 @@ Latest public release: **v1.0.0**.
 
 Current development target on `feature/v1.1.0-multi-watch-folders`: **v1.1.0 — Unreleased**.
 
-The v1.1.0 core backend architecture is implemented on the feature branch. QML/GuiBridge integration, local Windows execution, packaged-build verification, and computer-use UX testing are still required before merge/release.
+The v1.1.0 backend and QML/GuiBridge integration are implemented on the feature branch. Local Windows source checks, debug/release packaged launch verification, computer-use UX testing, and documentation synchronization have been completed. The branch remains an unreleased release candidate pending review and clean-machine release QA.
 
 ## Summary
 
@@ -27,7 +27,7 @@ v1.1.0 replaces the v1.0.0 single watch-folder/global archive model with stable-
 - `app/secrets.py` stores Discord/Henrik secrets through keyring/Windows Credential Manager or local fallback.
 - `app/ffmpeg_runner.py` resolves bundled FFmpeg/FFprobe and runs compression.
 - `app/thumbnailer.py` creates cached thumbnails using bundled FFmpeg.
-- `app/tray.py`, `app/gui_bridge.py`, and QML files provide the tray/QML UI bridge. These still require final v1.1 profile-management integration.
+- `app/tray.py`, `app/gui_bridge.py`, and QML files provide the tray/QML UI bridge, including stable-ID profile management, source labels/filtering and scoped archive actions.
 - `app/single_instance.py` prevents multiple tray instances and restores the running app.
 - `app/startup.py` manages HKCU Run startup behavior.
 
@@ -126,14 +126,14 @@ Profile captions and stats are composed as separate Discord content sections. Fi
 
 ## GUI/QML Status
 
-Current v1.0 UI structure:
+Current v1.1 release-candidate UI structure:
 
 - `app/gui/main.qml`: main shell/top bar/settings wiring/custom chrome.
 - `app/gui/Dashboard.qml`: action strip, clip grid, selected actions, details panel, live thumbnail refresh.
 - `app/gui/Settings.qml`: configuration, Performance, and Logs sections.
 - `app/gui/components/`: reusable cards/controls/dialogs.
 
-Required v1.1 integration still pending:
+Implemented v1.1 integration:
 
 - visible watch-profile management list/cards;
 - add/edit/remove profile flow;
@@ -153,7 +153,7 @@ Required v1.1 integration still pending:
 
 `tests/test_v110_multi_watch.py` covers core backend requirements including config migration, path overlap validation, SQLite profile ownership, archive-subtree pruning, archive isolation, clear-one isolation, removal safety, caption/stat formatting, per-profile Henrik gating, and mention suppression.
 
-These tests are committed but **not yet executed in the connected GitHub editing environment**. Local test execution is mandatory before the feature branch is merged.
+The original 12-test backend suite passed in Windows CI at `a3ee3c76878e54b607215cb090588f7749d6071b`. The completed branch has 21 local tests, including GuiBridge/QML filtering and selection coverage.
 
 ## Packaging Model
 
@@ -168,16 +168,14 @@ v1.1 does not intentionally change the packaging model.
 
 ## Known Technical Debt / Pending Work
 
-- v1.0-era GuiBridge/QML still requires conversion to the profile service.
 - temporary config compatibility mirrors exist during migration and should be reviewed after all old call sites are removed.
-- Windows source-mode, QML smoke, packaged debug/release, and computer-use UX verification have not yet been run for v1.1.
 - clean Windows VM QA remains required before public release.
 - appdata name remains `ValorantClipUploader` intentionally for compatibility.
 - installer/signing/uninstall cleanup remain outside this feature.
 
-## Definition Of v1.1 Backend Done
+## Verified v1.1 release-candidate checks
 
-Core backend is not considered verified until the following run locally:
+The following checks pass locally on Windows:
 
 ```powershell
 python -m unittest discover -s tests -v

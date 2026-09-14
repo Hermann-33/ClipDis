@@ -41,11 +41,9 @@ Item {
         setup = appBridge.getSetupStatus()
         webhookField.text = setup.webhookDisplay || "Not configured"
         henrikField.text = setup.henrikDisplay || "Not configured"
-        watchField.text = cfgValue("watch_folder", "watchFolder", "")
-        uploadedField.text = cfgValue("uploaded_folder", "uploadedFolder", "")
+        folderManager.reload()
         startupToggle.checked = setup.startupSupported !== false ? setup.startupEnabled === true : cfgValue("start_with_windows", "startWithWindows", false) === true
         startupToggle.enabled = setup.startupSupported !== false
-        useStatsToggle.checked = cfgValue("use_henrik_stats", "useHenrikStats", false) === true
         riotNameField.text = cfgValue("riot_username", "riotUsername", "")
         riotTagField.text = cfgValue("riot_tagline", "riotTagline", "")
         regionBox.currentIndex = regionIndex(cfgValue("valorant_region", "valorantRegion", "ap"))
@@ -61,12 +59,9 @@ Item {
         if (appBridge === null || appBridge === undefined)
             return
         var result = appBridge.saveConfig({
-            watch_folder: watchField.text,
-            uploaded_folder: uploadedField.text,
             ffmpeg_source_mode: "bundled",
             ffmpeg_path: "",
             start_with_windows: startupToggle.checked,
-            use_henrik_stats: useStatsToggle.checked,
             riot_username: riotNameField.text,
             riot_tagline: riotTagField.text,
             valorant_region: regionBox.currentValue || "ap"
@@ -125,28 +120,20 @@ Item {
                 spacing: 10
 
                 ScrollView {
+                    id: configurationScroll
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
 
                     ColumnLayout {
-                        width: parent.width
+                        width: Math.max(0, configurationScroll.availableWidth - 12)
                         spacing: 10
 
-                        SettingRow {
-                            label: "Watch folder"
+                        WatchFolderManager {
+                            id: folderManager
+                            Layout.fillWidth: true
+                            appBridge: root.appBridge
                             theme: root.theme
-                            ModernField { id: watchField; placeholderText: "Select your clips folder"; theme: root.theme }
-                            SmallButton { text: root.width < 620 ? "..." : "Browse"; theme: root.theme; onClicked: browseInto(watchField, "Select clips watch folder") }
-                            StatusBadge { ok: setup.watchFolderOk === true; text: setup.watchFolderOk === true ? "OK" : "Missing"; theme: root.theme }
-                        }
-
-                        SettingRow {
-                            label: "Uploaded folder"
-                            theme: root.theme
-                            ModernField { id: uploadedField; placeholderText: "Select archive/uploaded folder"; theme: root.theme }
-                            SmallButton { text: root.width < 620 ? "..." : "Browse"; theme: root.theme; onClicked: browseInto(uploadedField, "Select uploaded/archive folder") }
-                            StatusBadge { ok: setup.uploadedFolderOk === true; text: setup.uploadedFolderOk === true ? "OK" : "Missing"; theme: root.theme }
                         }
 
                         SettingRow {
@@ -203,25 +190,19 @@ Item {
 
                         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: theme.border; Layout.topMargin: 4; Layout.bottomMargin: 2 }
 
-                        SettingRow {
-                            label: "Use Valorant stats"
-                            theme: root.theme
-                            SwitchPill { id: useStatsToggle; theme: root.theme; text: checked ? "On" : "Off" }
-                            Item { Layout.fillWidth: true }
-                        }
-
                         Label {
-                            visible: !useStatsToggle.checked
-                            text: "Stats are off. Discord uploads will not call Henrik, and Riot/Henrik fields can stay empty."
+                            text: "Shared Valorant credentials"
+                            color: theme.text
+                            font.bold: true
+                        }
+                        Label {
+                            text: "Used by folders with stats enabled. Save credentials before testing."
                             color: theme.muted
-                            font.pixelSize: 11
-                            wrapMode: Text.WordWrap
                             Layout.fillWidth: true
-                            Layout.leftMargin: 130
+                            wrapMode: Text.Wrap
                         }
 
                         SettingRow {
-                            visible: useStatsToggle.checked
                             label: "Riot username"
                             theme: root.theme
                             ModernField { id: riotNameField; theme: root.theme }
@@ -230,7 +211,6 @@ Item {
                         }
 
                         SettingRow {
-                            visible: useStatsToggle.checked
                             label: "Riot tagline"
                             theme: root.theme
                             ModernField { id: riotTagField; theme: root.theme }
@@ -239,7 +219,6 @@ Item {
                         }
 
                         SettingRow {
-                            visible: useStatsToggle.checked
                             label: "Valorant region"
                             theme: root.theme
                             AppComboBox {
@@ -261,7 +240,6 @@ Item {
                         }
 
                         SettingRow {
-                            visible: useStatsToggle.checked
                             label: "Henrik API key"
                             theme: root.theme
                             ModernField { id: henrikField; echoMode: TextInput.PasswordEchoOnEdit; placeholderText: "Required when stats are on"; theme: root.theme }
@@ -270,7 +248,6 @@ Item {
                         }
 
                         Rectangle {
-                            visible: useStatsToggle.checked
                             Layout.fillWidth: true
                             Layout.preferredHeight: statsError.length > 0 ? 138 : 112
                             radius: 10

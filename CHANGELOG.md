@@ -11,6 +11,9 @@
 - Added per-profile archive/file-count/size previews for destructive clear operations.
 - Added Discord mention suppression for user-defined captions through `allowed_mentions.parse = []`.
 - Added regression tests for config migration, profile validation, profile-scoped state, scanner exclusion, archive isolation, clear isolation, removal safety, captions, per-profile Valorant behavior, and Discord mention suppression.
+- Added visible watch-folder cards, profile editing, dashboard source badges and ID-based folder filtering.
+- Added profile-aware Open Folders and preview-backed Clear Uploaded menus for one or all archives.
+- Added explicit zero-profile, missing-profile, empty-filter and archive-empty UI states.
 
 ### Changed
 
@@ -22,6 +25,8 @@
 - Discord message content can now combine a profile caption and Valorant rank/level with deterministic spacing and the Discord 2,000-character limit enforced.
 - Missing watch folders no longer stop scanning of other valid profiles.
 - Removing a watch-folder profile is blocked while it owns active or failed jobs that could still require that profile.
+- Global settings saves no longer accept legacy single-folder fields from QML, and Valorant credentials can be tested independently of per-profile stats switches.
+- PyInstaller excludes incompatible ICU DLLs discovered on the build host PATH, allowing Qt to use the Windows ICU runtime expected by the packaged application.
 
 ### Migration
 
@@ -31,12 +36,11 @@
 - Existing legacy uploaded-folder contents are not deleted, moved, or silently imported. New successful uploads use `<watch root>\ClipDis Uploaded`.
 - `%APPDATA%\ValorantClipUploader` remains the persistence namespace for compatibility.
 
-### Pending before v1.1.0 release
+### Verification
 
-- QML/GuiBridge integration for full multi-profile management, dashboard filtering, open-folder menus, and scoped confirmation dialogs.
-- Local Windows source-mode and packaged-build verification.
-- Computer-use UX verification and fix loop.
-- Final documentation synchronization after verified UI behavior.
+- Windows source compilation, 21 automated tests, smoke/QML/diagnostic checks, a real-FFmpeg two-profile pipeline with mocked HTTP success, and debug/release onedir launch checks passed on the feature branch.
+- Computer-use QA covered zero/two-profile dashboard states, visible profile management, folder filtering, editor layout, destructive scope copy, and normal/minimum window layouts.
+- Live Discord/Henrik verification was not performed because no test credential was supplied; HTTP mocks verified caption composition, mention suppression, profile-specific Henrik gating, success transitions and archive routing.
 
 ## v1.0.0 - Initial Public Release
 

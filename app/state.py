@@ -260,6 +260,17 @@ class StateStore:
                 ).fetchall()
             return [row_to_dict(row) for row in rows]
 
+    def profile_has_unresolved_jobs(self, watch_folder_id: str) -> bool:
+        """Check all history, including uploaded originals awaiting archive."""
+        self.initialize_database()
+        states = sorted(set(ACTIVE_STATES) | {"failed", "uploaded"})
+        placeholders = ",".join("?" for _ in states)
+        with self._connect() as conn:
+            return conn.execute(
+                f"SELECT 1 FROM jobs WHERE watch_folder_id = ? AND status IN ({placeholders}) LIMIT 1",
+                (watch_folder_id, *states),
+            ).fetchone() is not None
+
     def profile_has_active_jobs(self, watch_folder_id: str) -> bool:
         return bool(self.list_jobs_for_profile(watch_folder_id, active_only=True, limit=1))
 

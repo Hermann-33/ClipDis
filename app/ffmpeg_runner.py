@@ -88,8 +88,7 @@ def compress_clip(input_path: str | Path, output_dir: str | Path | None, config:
         return CompressionResult(False, category="ffmpeg_input_missing", message="Input clip does not exist.")
 
     requested_target_dir = Path(output_dir) if output_dir else work_dir()
-    watch_folder = Path(config.watch_folder).resolve(strict=False) if config.watch_folder else None
-    if watch_folder and _is_inside(requested_target_dir, watch_folder):
+    if any(_is_inside(requested_target_dir, Path(profile.path)) for profile in config.watch_folders):
         logger.warning("Refusing to write FFmpeg output inside watch folder; using app work directory instead.")
         requested_target_dir = work_dir()
 

@@ -18,7 +18,7 @@ from app.config import (
     save_config,
     validate_watch_folders,
 )
-from app.state import ACTIVE_STATES, StateStore
+from app.state import StateStore
 
 
 class WatchFolderService:
@@ -74,8 +74,10 @@ class WatchFolderService:
             return _error("Watch folder profile was not found.")
 
         new_path = normalize_watch_path(changes.get("path", current.path))
-        if not new_path or not Path(new_path).is_dir():
+        if not new_path or (new_path != current.path and not Path(new_path).is_dir()):
             return _error("Selected watch folder does not exist or is not a directory.")
+        if new_path != current.path and self.state.profile_has_unresolved_jobs(profile_id):
+            return _error("Resolve active or failed clip jobs before changing this watch path.")
         new_name = str(changes.get("name", current.name) or "").strip()
         if not new_name:
             return _error("Watch folder name cannot be empty.")
@@ -108,13 +110,7 @@ class WatchFolderService:
         # Failed jobs are also unresolved because the user may retry them later.
         # Removing their owning profile would make that retry/archive behavior
         # ambiguous, so require active and failed work to be resolved first.
-        blocking_states = set(ACTIVE_STATES) | {"failed"}
-        unresolved = [
-            job
-            for job in self.state.list_jobs_for_profile(profile.id, active_only=False, limit=1000)
-            if str(job.get("status") or "") in blocking_states
-        ]
-        if unresolved:
+        if self.state.profile_has_unresolved_jobs(profile.id):
             return _error(
                 f'Cannot remove "{profile.name}" while it still has active or failed clip jobs. Resolve, finish, or skip those jobs first.'
             )
@@ -182,7 +178,7 @@ class WatchFolderService:
         results = [_clear_profile(profile) for profile in config.watch_folders]
         deleted = sum(int(result.get("data", {}).get("deleted", 0)) for result in results)
         skipped = sum(int(result.get("data", {}).get("skipped", 0)) for result in results)
-        failed = sum(int(result.get("data", {}).get("failed", 0)) for result in results)
+        failed = sum(int(result.get("data", {}).get("failed", 0)) or (0 if result.get("ok") else 1) for result in results)
         bytes_freed = sum(int(result.get("data", {}).get("bytesFreed", 0)) for result in results)
         return {
             "ok": failed == 0,

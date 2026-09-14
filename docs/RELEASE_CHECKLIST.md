@@ -2,6 +2,10 @@
 
 Use this checklist before publishing a Windows release. For v1.1.0, every multi-watch/profile item below is mandatory.
 
+## v1.1.0 release-candidate verification (2026-09-14)
+
+The feature branch passed Python compilation, 21 automated tests, source smoke/QML/diagnostic checks, real-FFmpeg two-profile pipeline tests with mocked HTTP success, and debug/release onedir launch checks. Computer-use QA covered the profile dashboard, Settings cards/editor, filter options, destructive dialogs, and normal/minimum window sizes. Live Discord/Henrik calls and clean-machine QA remain release-time checks because no disposable credentials or clean VM were supplied.
+
 ## Automated Gates
 
 - `python -m compileall -q main.py app tests` passes.

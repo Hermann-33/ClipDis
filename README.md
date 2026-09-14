@@ -16,7 +16,7 @@
 
 The latest public binary release is **v1.0.0**.
 
-The `feature/v1.1.0-multi-watch-folders` branch is development work for **v1.1.0 — Unreleased**. Its source includes the new multi-watch backend architecture, but the v1.1.0 UI and Windows packaged-build verification must be completed before the release is published.
+The `feature/v1.1.0-multi-watch-folders` branch is the **v1.1.0 — Unreleased release candidate**. Its source includes the multi-watch backend, profile-management UI, dashboard filtering and scoped archive tools. Windows source and packaged-build verification has been completed on the feature branch; clean-machine release QA remains required before publication.
 
 See `CHANGELOG.md` and `docs/V1.1.0_MULTI_WATCH_DESIGN.md` for the exact implementation status.
 
