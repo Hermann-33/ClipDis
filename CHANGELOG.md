@@ -1,6 +1,6 @@
 ﻿# Changelog
 
-## v1.1.0 - Unreleased
+## v1.1.0 - 2026-09-14
 
 ### Added
 
@@ -14,6 +14,7 @@
 - Added visible watch-folder cards, profile editing, dashboard source badges and ID-based folder filtering.
 - Added profile-aware Open Folders and preview-backed Clear Uploaded menus for one or all archives.
 - Added explicit zero-profile, missing-profile, empty-filter and archive-empty UI states.
+- Added fresh-Windows packaged-release CI that materializes Git LFS FFmpeg binaries, builds the no-console release, checks the packaged tree, validates the embedded Windows icon resource, runs packaged smoke/QML/diagnostic checks against clean AppData, verifies ZIP layout, and publishes checksum metadata.
 
 ### Changed
 
@@ -38,9 +39,16 @@
 
 ### Verification
 
-- Windows source compilation, 21 automated tests, smoke/QML/diagnostic checks, a real-FFmpeg two-profile pipeline with mocked HTTP success, and debug/release onedir launch checks passed on the feature branch.
-- Computer-use QA covered zero/two-profile dashboard states, visible profile management, folder filtering, editor layout, destructive scope copy, and the normal 960x620 layout. A direct Qt render verified the dashboard at the 760x520 minimum; the native computer-use surface became unavailable before the minimum-size and release-build interactions could be repeated.
-- Live Discord/Henrik verification was not performed because no test credential was supplied; HTTP mocks verified caption composition, mention suppression, profile-specific Henrik gating, success transitions and archive routing.
+- Windows source compilation, 21 automated tests, smoke/QML/diagnostic checks, a real-FFmpeg two-profile pipeline with mocked HTTP success, and debug/release onedir launch checks passed.
+- Computer-use QA covered zero/two-profile dashboard states, visible profile management, folder filtering, editor layout, destructive scope copy, and the normal 960x620 layout. A direct Qt render verified the dashboard at the 760x520 minimum.
+- Live Henrik rank/level lookup passed through `--test-valorant-stats`; a live Discord clip upload was not performed because no confirmed disposable webhook destination was available. HTTP integration tests verified caption composition, mention suppression, profile-specific Henrik gating, success transitions and archive routing.
+- The final v1.1.0 release was rebuilt from `main` on a fresh Windows GitHub Actions runner with Git LFS materialized. The release workflow verified required QML/assets, bundled FFmpeg/FFprobe and license, absence of stray ICU DLLs, the embedded Windows `RT_GROUP_ICON`, packaged smoke/QML/diagnostic exit codes, top-level ZIP layout, and SHA-256 checksum generation before publication.
+
+### Release Artifact
+
+- Tag: `v1.1.0`
+- Windows asset: `ClipDis-v1.1.0-windows-x64.zip`
+- SHA-256: `150ba3612d03638cbe969c2053254172bd71c46bcccb0128db724df4d3c55d45`
 
 ## v1.0.0 - Initial Public Release
 
