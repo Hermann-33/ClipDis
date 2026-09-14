@@ -9,16 +9,16 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Hermann-33/ClipDis/releases">Download ClipDis</a>
+  <a href="https://github.com/Hermann-33/ClipDis/releases/latest">Download ClipDis</a>
 </p>
 
 ## Release Status
 
-The latest public binary release is **v1.0.0**.
+The latest public binary release is **v1.1.0 — Multi-Watch Folders**, published on September 14, 2026.
 
-The `feature/v1.1.0-multi-watch-folders` branch is the **v1.1.0 — Unreleased release candidate**. Its source includes the multi-watch backend, profile-management UI, dashboard filtering and scoped archive tools. Windows source and packaged-build verification has been completed on the feature branch; clean-machine release QA remains required before publication.
+Download the verified Windows release from the [ClipDis Releases page](https://github.com/Hermann-33/ClipDis/releases/tag/v1.1.0).
 
-See `CHANGELOG.md` and `docs/V1.1.0_MULTI_WATCH_DESIGN.md` for the exact implementation status.
+See `CHANGELOG.md` and `docs/V1.1.0_MULTI_WATCH_DESIGN.md` for implementation and verification details.
 
 ## What Is ClipDis?
 
@@ -65,7 +65,7 @@ ClipDis rejects duplicate or nested/overlapping watch roots because a physical c
 
 | Feature | What It Does |
 | --- | --- |
-| Multiple watch folders | v1.1.0 supports independent watch-folder profiles for different games/recorders. |
+| Multiple watch folders | Supports independent watch-folder profiles for different games/recorders. |
 | Automatic archive folders | Each profile archives successful originals into its own `ClipDis Uploaded` directory. |
 | FFmpeg compression | Uses bundled FFmpeg, so normal users do not need a separate FFmpeg install. |
 | Discord webhook upload | Uploads clips directly to your chosen Discord channel. |
@@ -96,35 +96,31 @@ For developers:
 
 ## Download And Install
 
-For the currently published v1.0.0 release:
-
-1. Go to the [ClipDis Releases page](https://github.com/Hermann-33/ClipDis/releases).
-2. Download `ClipDis-v1.0.0-windows-x64.zip`.
-3. Extract the full ZIP.
+1. Go to the [ClipDis v1.1.0 release](https://github.com/Hermann-33/ClipDis/releases/tag/v1.1.0).
+2. Download `ClipDis-v1.1.0-windows-x64.zip`.
+3. Extract the **entire** ZIP into a normal folder.
 4. Open the extracted folder.
 5. Run `ClipDis.exe`.
-6. Do not delete `_internal`.
+6. Keep `_internal` beside `ClipDis.exe`.
 
-> **Important:** `_internal` contains the packaged runtime, QML files, icons, and bundled FFmpeg. If you delete `_internal`, ClipDis will not run correctly.
+> **Important:** `_internal` contains the packaged runtime, QML files, icons, and bundled FFmpeg. If you delete or move `_internal`, ClipDis will not run correctly.
 
-Do not use a development branch as though it were a public release binary.
+The release also includes `SHA256SUMS.txt` so the downloaded ZIP can be checksum-verified.
 
-## v1.1.0 Setup Workflow
-
-When v1.1.0 is released, the setup model is:
+## First-Time Setup
 
 1. Open ClipDis.
-2. Open Settings.
-3. Add the folder where your recorder saves clips.
+2. Open **Settings**.
+3. Click **Add Watch Folder** and choose the folder where your recorder saves clips.
 4. Add more watch folders when needed.
 5. Give profiles useful names such as `Valorant`, `Rocket League`, or `Fortnite`.
 6. Paste your Discord webhook URL once in the global configuration.
-7. Configure global Riot/Henrik credentials only if you use Valorant metadata.
+7. Configure Riot/Henrik credentials only if you want Valorant metadata.
 8. On each watch profile, choose whether Valorant stats should be shown.
 9. Optionally enable a profile caption and enter text such as `Rocket League`.
-10. Save/test configuration and perform one manual upload before enabling unattended Auto Upload.
+10. Test your configuration and perform one manual upload before relying on unattended Auto Upload.
 
-There is no separate Uploaded Folder picker in the v1.1.0 design. Each profile automatically owns:
+There is no separate Uploaded Folder picker. Each profile automatically owns:
 
 ```text
 <watch folder>\ClipDis Uploaded
@@ -145,9 +141,9 @@ A Discord webhook is a private URL that lets ClipDis post clips into one channel
 9. Optionally choose an avatar.
 10. Click **Copy Webhook URL**.
 11. Paste the URL into ClipDis Settings.
-12. Save your settings.
+12. Save your settings and use the webhook test before uploading clips.
 
-> **Keep your webhook private.** Anyone with the webhook URL can post into that Discord channel. If it leaks, delete the webhook in Discord and create a new one.
+> **Keep your webhook private.** Anyone with the webhook URL can post into that Discord channel. If it leaks, delete/regenerate the webhook in Discord and update ClipDis.
 
 ## Auto Upload
 
@@ -197,11 +193,11 @@ Rocket League
 
 If both a caption and Valorant stats are enabled, ClipDis formats them as separate sections.
 
-User captions are sent with Discord mentions disabled, so text such as `@everyone` is not intended to create a mass mention through ClipDis.
+User captions are sent with Discord mentions disabled, so text such as `@everyone` is displayed as text rather than generating a broad mention through ClipDis.
 
 ## Optional Valorant Stats
 
-Riot/Henrik identity is global, while **whether to include rank/level is per watch-folder profile** in v1.1.0.
+Riot/Henrik identity is global, while **whether to include rank/level is per watch-folder profile**.
 
 Global values:
 
@@ -214,6 +210,10 @@ A profile with **Show Valorant Stats** off performs no Henrik lookup for that up
 
 A profile with the option on requests stats using the shared credentials. Stats remain optional: if HenrikDev is unavailable, the clip upload is allowed to continue.
 
+HenrikDev API keys are obtained through HenrikDev's system/community. Start from the HenrikDev Discord server:
+
+**https://discord.gg/U2V8p6g2r**
+
 Do not share your HenrikDev API key publicly.
 
 ## Archive And Clear Behavior
@@ -224,7 +224,7 @@ Each watch profile uses its own archive:
 <watch root>\ClipDis Uploaded
 ```
 
-The v1.1.0 backend supports:
+ClipDis supports:
 
 - opening a profile's watch directory;
 - opening/creating its `ClipDis Uploaded` directory;
@@ -232,13 +232,13 @@ The v1.1.0 backend supports:
 - clearing one selected profile archive;
 - clearing all profile archives.
 
-Destructive clear APIs are profile-ID scoped. The UI must not be able to pass an arbitrary filesystem path to the deletion routine.
+Destructive clear operations are profile-scoped. The UI does not pass arbitrary filesystem deletion paths to the backend.
 
 ClipDis deletes only safe regular top-level files in the expected app-owned archive directory. Unexpected directories/links are skipped instead of being recursively erased.
 
 ## v1.0.0 -> v1.1.0 Migration
 
-The configuration schema becomes version 2.
+Configuration schema v2 is introduced automatically.
 
 For an existing installation:
 
@@ -263,8 +263,6 @@ For an existing installation:
 
 ## Updating ClipDis
 
-For published releases:
-
 1. Download the newer release ZIP from the [Releases page](https://github.com/Hermann-33/ClipDis/releases).
 2. Extract it into a fresh folder.
 3. Run the new `ClipDis.exe`.
@@ -283,7 +281,7 @@ Avoid mixing random files from old and new builds. Extract the new ZIP cleanly.
 | Webhook test fails | Create a fresh Discord webhook and paste the new URL into Settings. |
 | Clips do not appear | Confirm the correct watch profile points to the folder where your recorder saves `.mp4` clips. |
 | One game folder is missing | That profile should report missing; other valid watch folders should continue scanning. |
-| An archived clip appears as new | This is a v1.1 safety regression. `ClipDis Uploaded` must be excluded from scanning. Do not publish the build until fixed. |
+| An archived clip appears as new | `ClipDis Uploaded` should always be excluded from scanning. Stop Auto Upload and report the issue before processing more clips. |
 | Thumbnails do not load | Give ClipDis a few seconds. If needed, restart once and check that bundled FFmpeg is present. |
 | Upload is too large | Lower the max upload size setting or use shorter clips. Discord limits depend on your server/account. |
 | Auto Upload does nothing | First confirm manual upload works, then ensure Auto Upload is on and the clip is not already failed. |
@@ -303,7 +301,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-v1.1.0 backend regression suite:
+Regression suite:
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -326,7 +324,7 @@ cmd /c build.bat release
 
 The source code is separate from the release ZIP. Do not commit `dist/`, `dist_release/`, release ZIP files, logs, databases, local config, or secrets.
 
-For v1.1.0 implementation details and remaining QA requirements, read:
+For v1.1.0 architecture, implementation decisions, migration details, safety requirements and verification results, read:
 
 ```text
 docs/V1.1.0_MULTI_WATCH_DESIGN.md
