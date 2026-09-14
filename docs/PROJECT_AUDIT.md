@@ -2,11 +2,17 @@
 
 ## Status
 
-Latest public release: **v1.0.0**.
+Latest public release: **v1.1.0 — Multi-Watch Folders**, published September 14, 2026.
 
-Current development target on `feature/v1.1.0-multi-watch-folders`: **v1.1.0 — Unreleased**.
+Release tag: `v1.1.0`
 
-The v1.1.0 backend and QML/GuiBridge integration are implemented on the feature branch. Local Windows source checks, debug/release packaged launch verification, debug-package computer-use UX testing, and documentation synchronization have been completed. The native computer-use surface became unavailable before the minimum-size and release-build interaction matrices could be repeated. The branch remains an unreleased release candidate pending that QA, review, and clean-machine release QA.
+Release source commit: `8affaab92a10932808bc37bee537eb631335b3bd`
+
+Windows release asset: `ClipDis-v1.1.0-windows-x64.zip`
+
+SHA-256: `150ba3612d03638cbe969c2053254172bd71c46bcccb0128db724df4d3c55d45`
+
+The v1.1.0 backend, GuiBridge/QML integration, multi-profile workflows, Windows packaging and release automation are complete and published. The final release was rebuilt and verified on a fresh Windows GitHub Actions runner before publication, including an explicit Windows PE icon-resource check.
 
 ## Summary
 
@@ -73,11 +79,11 @@ Legacy v1 configuration is migrated once:
 - legacy uploaded-folder contents are untouched;
 - new successful uploads use the derived profile archive.
 
-Temporary legacy config mirrors remain while v1.0-era UI/call sites are converted. They must not become the long-term v1.1 source of truth.
+Legacy config mirror fields remain for backward-compatibility boundaries, but v1.1 profile-aware runtime/UI behavior uses `watch_folders` as the source of truth.
 
 ## SQLite Model
 
-New additive job columns:
+Additive job columns:
 
 ```text
 watch_folder_id TEXT
@@ -98,7 +104,7 @@ Never move/delete the original clip before Discord confirms upload success.
 
 After success, the owning profile determines the derived archive destination. Filename collision behavior remains preserved.
 
-Archive clearing is implemented behind profile-ID-scoped APIs. QML must not send an arbitrary filesystem deletion path. Clear previews report file count/bytes, and clear operations skip unexpected directories/links/reparse points instead of recursively destroying them.
+Archive clearing is implemented behind profile-ID-scoped APIs. QML does not send arbitrary filesystem deletion paths. Clear previews report file count/bytes, and clear operations skip unexpected directories/links/reparse points instead of recursively destroying them.
 
 ## Discord/Valorant Behavior
 
@@ -126,12 +132,12 @@ Profile captions and stats are composed as separate Discord content sections. Fi
 
 ## GUI/QML Status
 
-Current v1.1 release-candidate UI structure:
+Published v1.1.0 UI structure:
 
 - `app/gui/main.qml`: main shell/top bar/settings wiring/custom chrome.
-- `app/gui/Dashboard.qml`: action strip, clip grid, selected actions, details panel, live thumbnail refresh.
-- `app/gui/Settings.qml`: configuration, Performance, and Logs sections.
-- `app/gui/components/`: reusable cards/controls/dialogs.
+- `app/gui/Dashboard.qml`: action strip, source-profile filtering, clip grid, selected actions, details panel, live thumbnail refresh.
+- `app/gui/Settings.qml`: global configuration plus visible watch-profile management, Performance and Logs sections.
+- `app/gui/components/`: reusable cards/controls/dialogs, including profile-management surfaces.
 
 Implemented v1.1 integration:
 
@@ -142,18 +148,31 @@ Implemented v1.1 integration:
 - derived archive path display;
 - profile labels on clip cards/details;
 - dashboard All Folders/profile filter;
-- filtered selection semantics;
+- exact filtered selection semantics;
 - Open Folders command menu;
 - Clear Uploaded profile/all command menu;
 - preview-backed explicit destructive confirmation dialogs;
 - per-profile missing states;
-- updated diagnostics.
+- profile-aware diagnostics.
 
-## Regression Tests Added
+## Regression Tests
 
-`tests/test_v110_multi_watch.py` covers core backend requirements including config migration, path overlap validation, SQLite profile ownership, archive-subtree pruning, archive isolation, clear-one isolation, removal safety, caption/stat formatting, per-profile Henrik gating, and mention suppression.
+The completed v1.1.0 suite contains **21 automated tests**, including:
 
-The original 12-test backend suite passed in Windows CI at `a3ee3c76878e54b607215cb090588f7749d6071b`. The completed branch has 21 local tests, including GuiBridge/QML filtering and selection coverage.
+- config migration and stable profile IDs;
+- duplicate/nested-root rejection;
+- SQLite profile ownership;
+- archive-subtree pruning;
+- A/B archive isolation;
+- clear-one/clear-all safety;
+- active/failed/uploaded-job profile-removal protection;
+- independent captions and Valorant toggles;
+- zero Henrik request for stats-disabled profiles;
+- Discord mention suppression;
+- GuiBridge profile behavior;
+- stable-ID dashboard filtering and exact Select All Visible behavior.
+
+The suite passed both local Windows validation and the final clean GitHub Actions release build.
 
 ## Packaging Model
 
@@ -162,30 +181,44 @@ PyInstaller uses `ClipDis.spec`.
 - debug onedir: `dist/ClipDis/ClipDis.exe`;
 - release onedir: `dist_release/ClipDis/ClipDis.exe`;
 - `_internal` remains required;
-- bundled FFmpeg/FFprobe/license remain part of the package.
+- bundled FFmpeg/FFprobe/license remain part of the package;
+- `app_icon.ico` is embedded into the Windows EXE and the icon assets are also retained in packaged GUI data;
+- runtime Qt sets the app/window/tray icon and `Hermann.ClipDis` AppUserModelID;
+- incompatible host-PATH ICU DLLs are explicitly excluded from the packaged distribution.
 
-v1.1 does not intentionally change the packaging model.
+## v1.1.0 Release Verification
 
-## Known Technical Debt / Pending Work
+The final release workflow on a fresh Windows runner passed all of these gates:
 
-- temporary config compatibility mirrors exist during migration and should be reviewed after all old call sites are removed.
-- repeat the minimum-size and release-build interaction matrices when native computer use is available.
-- clean Windows VM QA remains required before public release.
-- appdata name remains `ValorantClipUploader` intentionally for compatibility.
-- installer/signing/uninstall cleanup remain outside this feature.
-
-## Verified v1.1 release-candidate checks
-
-The following checks pass locally on Windows:
-
-```powershell
-python -m unittest discover -s tests -v
-python -m compileall main.py app tests
-python main.py --smoke-check
-python main.py --qml-smoke-check
-python main.py --diagnose
+```text
+Git LFS checkout and FFmpeg materialization
+Python compile check
+21 automated tests
+PyInstaller no-console release build
+required package-file verification
+FFmpeg/FFprobe/license presence
+QML and app-icon asset presence
+no stray icu*.dll payload
+Windows PE RT_GROUP_ICON verification
+packaged --smoke-check
+packaged --qml-smoke-check
+packaged --diagnose
+clean AppData isolation
+release ZIP structure verification
+SHA-256 generation
+release asset upload
+release publication
 ```
 
-Then the packaged app must be built and exercised on Windows with at least two isolated watch roots and their derived archives.
+The final Windows ZIP contains `ClipDis.exe` and `_internal/` at the top level, not an extra nested `ClipDis/` directory.
 
-See `docs/V1.1.0_MULTI_WATCH_DESIGN.md` for the complete design/safety/test contract.
+## Known Technical Debt / Follow-Up Work
+
+- legacy config compatibility mirror fields remain and can be revisited in a future breaking-cleanup cycle;
+- `%APPDATA%\ValorantClipUploader` remains intentionally unchanged for compatibility;
+- installer/signing/uninstall cleanup are not implemented;
+- the user's previously existing local `state.db` was found corrupt during v1.1 QA and was intentionally not deleted or rewritten because doing so could discard job history; isolated/fresh state passed all release checks;
+- a real Discord clip upload to a confirmed disposable test channel was not performed during release QA, although webhook validation and mocked multipart upload behavior passed;
+- additional interactive clean-machine tray/window QA remains useful follow-up coverage even though the release package itself was built and executed on a fresh Windows CI runner.
+
+See `docs/V1.1.0_MULTI_WATCH_DESIGN.md` for the full feature design, migration and safety contract.
