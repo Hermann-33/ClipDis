@@ -99,12 +99,15 @@ jobs:
           $env:QT_QPA_PLATFORM = 'offscreen'
           New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
           New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
-          & 'dist_release/ClipDis/ClipDis.exe' --smoke-check
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged smoke check failed.' }
-          & 'dist_release/ClipDis/ClipDis.exe' --qml-smoke-check
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged QML smoke check failed.' }
-          & 'dist_release/ClipDis/ClipDis.exe' --diagnose
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged diagnostics failed.' }
+
+          $exe = Resolve-Path 'dist_release/ClipDis/ClipDis.exe'
+          $checks = @('--smoke-check', '--qml-smoke-check', '--diagnose')
+          foreach ($check in $checks) {
+            $process = Start-Process -FilePath $exe -ArgumentList $check -PassThru -Wait -NoNewWindow
+            if ($process.ExitCode -ne 0) {
+              throw "Packaged ClipDis failed $check with exit code $($process.ExitCode)."
+            }
+          }
 
       - name: Create release ZIP and checksum
         shell: pwsh
